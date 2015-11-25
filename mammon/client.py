@@ -20,6 +20,9 @@ import time
 import socket
 import copy
 import functools
+import ipaddress
+
+import ircmatch
 
 from ircreactor.envelope import RFC1459Message
 from .capability import Capability
@@ -451,6 +454,28 @@ class ClientProtocol(asyncio.Protocol):
         self.registered = True
         self.ctx.clients[self.nickname] = self
 
+        # check klines
+        ipaddr = ipaddress.ip_address(self.realaddr)
+
+        for info in list(self.ctx.klines.values()):
+            if info['duration_mins'] == 0 or time.time() < info['expires_at']:
+                if not ircmatch.match(0, info['user'], self.username):
+                    continue
+
+                if info['host_type'] == 'mask':
+                    if (not ircmatch.match(0, info['host'], self.hostname) or
+                            not ircmatch.match(0, info['host'], self.realaddr)):
+                        continue
+
+                elif info['host_type'] in (4, 6):
+                    if ipaddr not in info['network']:
+                        continue
+
+                reason = 'You are banned from this server ({})'.format(info['reason'])
+                self.dump_numeric('465', params=[reason])
+                self.quit('Closed Connection')
+
+        # continue with registration
         self.registration_ts = self.ctx.current_ts
         self.update_idle()
 

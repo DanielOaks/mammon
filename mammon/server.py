@@ -40,7 +40,9 @@ import datetime
 import time
 import os
 import signal
+import globre
 import importlib
+import ipaddress
 from getpass import getpass
 
 class ServerContext(object):
@@ -48,6 +50,7 @@ class ServerContext(object):
     roles = []
     clients = CaseInsensitiveDict()
     channels = CaseInsensitiveDict()
+    klines = {}
     listeners = []
     config_name = 'mammond.yml'
     nofork = False
@@ -233,6 +236,14 @@ Options:
         running_context = self
 
         self.data.create_or_load()
+
+        self.logger.debug('loading klines')
+        for key in self.data.list_keys(prefix='kline.'):
+            info = dict(self.data.get(key))
+            if globre.match(info['server'], self.conf.name):
+                if info['host_type'] in (4, 6):
+                    info['network'] = ipaddress.ip_network(info['host'], strict=False)
+                self.klines[(info['server'], info['mask'])] = info
 
         self.update_ts_callback()
         self.data.save_callback()

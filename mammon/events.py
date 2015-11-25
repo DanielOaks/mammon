@@ -83,13 +83,16 @@ class RFC1459EventManager(EventManager):
         cli = ev_msg['client']
         cli.dump_numeric('421', [ev_msg['verb'], 'Unknown command'])
 
-    def message(self, verb, min_params=0, update_idle=False, priority=10, allow_unregistered=False):
+    def message(self, verb, min_params=0, update_idle=False, priority=10, allow_unregistered=False, oper=False):
         def parent_fn(func):
             @wraps(func)
             def child_fn(ev_msg):
                 cli = ev_msg['client']
                 if not allow_unregistered and not cli.registered:
                     cli.dump_numeric('451', ['You have not registered'])
+                    return
+                if oper and not cli.props.get('special:oper', False):
+                    cli.dump_numeric('481', ['Permission Denied'])
                     return
                 if len(ev_msg['params']) < min_params:
                     cli.dump_numeric('461', [ev_msg['verb'], 'Not enough parameters'])

@@ -27,13 +27,13 @@ from mammon.server import get_context
 
 from . import away
 
-@eventmgr_rfc1459.message('KILL', min_params=2)
+@eventmgr_rfc1459.message('KILL', min_params=2, oper=True)
 def m_KILL(cli, ev_msg):
     target, reason = ev_msg['params'][:2]
 
     # XXX - when we have multiple servers, we will need to check local kill vs remote kill
-    if (cli.role and 'oper:local_kill' not in cli.role.capabilities) or not cli.role:
-        cli.dump_numeric('481', ['Permission Denied'])
+    if 'oper:local_kill' not in cli.role.capabilities:
+        cli.dump_numeric('723', params=['local_kill', 'Insufficient oper privs'])
         return
 
     # XXX - check other servers too when we have multiple servers
