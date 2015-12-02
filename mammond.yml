@@ -127,7 +127,7 @@ register:
   #   oper:routing       allows remote SQUIT and CONNECT
   #   oper:kline         allows KLINE and DLINE
   #   oper:unkline       allows UNKLINE and UNDLINE
-  #   oper:remote_ban    allows remote klines
+  #   oper:remote_ban    allows setting and removing remote klines
   #   oper:rehash        allows REHASH of server config
   #   oper:die           allows DIE and RESTART
 

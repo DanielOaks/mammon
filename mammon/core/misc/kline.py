@@ -74,10 +74,10 @@ def m_KLINE(cli, ev_msg):
 
     # dispatch
     if duration_mins:
-        cli.dump_notice('Added temporary {mins} min. K-Line [{user}@{host}]'
-                        ''.format(mins=duration_mins, user=user, host=host))
+        cli.dump_notice('Added temporary {mins} min. K-Line [{mask}]'
+                        ''.format(mins=duration_mins, mask=mask))
     else:
-        cli.dump_notice('Added K-Line [{}@{}]'.format(user, host))
+        cli.dump_notice('Added K-Line [{}]'.format(mask))
 
     eventmgr_core.dispatch('kline', {
         'source': cli,
@@ -109,3 +109,68 @@ def m_kline_process(info):
         if info['host_type'] in (4, 6):
             kline_data['network'] = ipaddress.ip_network(info['host'], strict=False)
         ctx.klines[(info['server'], info['mask'])] = kline_data
+
+@eventmgr_rfc1459.message('UNKLINE', min_params=1, oper=True)
+def m_UNKLINE(cli, ev_msg):
+    if 'oper:unkline' not in cli.role.capabilities:
+        cli.dump_numeric('723', params=['unkline', 'Insufficient oper privs'])
+        return
+
+    params = list(ev_msg['params'])
+
+    userhost = params.pop(0)
+    if '@' in userhost:
+        user, host = userhost.split('@', 1)
+    else:
+        user = '*'
+        host = userhost
+
+    dest_server = cli.servername
+    if len(params) > 1 and params[1].upper() == 'ON':
+        if 'oper:remote_ban' not in cli.role.capabilities:
+            cli.dump_numeric('723', params=['remote_ban', 'Insufficient oper privs'])
+            return
+        dest_server = params[1]
+        params = params[2:]
+
+    # work out mask and type
+    try:
+        # strict here just controls whether it validates host bits, so we ignore this
+        network = ipaddress.ip_network(host, strict=False)
+
+        host_type = network.version
+        host = network.compressed
+    except ValueError:
+        host_type = 'mask'
+
+    mask = user + '@' + host
+
+    # confirm kline exists
+    ctx = get_context()
+
+    if 'kline.{}_{}'.format(dest_server, mask) in ctx.data:
+        cli.dump_notice('Removed K-Line [{}]'.format(mask))
+    else:
+        cli.dump_notice('No K-Line for [{}]'.format(mask))
+
+    # dispatch
+    eventmgr_core.dispatch('unkline', {
+        'source': cli,
+        'server': dest_server,
+        'mask': mask,
+        'user': user,
+        'host': host,
+        'host_type': host_type,
+    })
+
+@eventmgr_core.handler('unkline')
+def m_unkline_process(info):
+    ctx = get_context()
+
+    ctx.data.delete('kline.{}_{}'.format(info['server'], info['mask']))
+
+    if globre.match(info['server'], ctx.conf.name):
+        try:
+            del ctx.klines[(info['server'], info['mask'])]
+        except KeyError:
+            return
