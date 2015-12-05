@@ -111,7 +111,7 @@ def m_kline_process(info):
         ctx.klines[(info['server'], info['mask'])] = kline_data
 
         # apply kline to matching clients on the network
-        for client in ctx.clients.values():
+        for client in list(ctx.clients.values()):
             client.check_kline(kline_data)
 
 @eventmgr_rfc1459.message('UNKLINE', min_params=1, oper=True)
