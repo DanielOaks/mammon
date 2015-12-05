@@ -450,30 +450,35 @@ class ClientProtocol(asyncio.Protocol):
 
         self.dump_numeric('005', [format_token(k, v) for k, v in isupport_tokens.items()] + ['are supported by this server'])
 
+    def check_kline(self, info):
+        ipaddr = ipaddress.ip_address(self.realaddr)
+
+        if info['duration_mins'] == 0 or time.time() < info['expires_at']:
+            if not ircmatch.match(0, info['user'], self.username):
+                return
+
+            if info['host_type'] == 'mask':
+                if (not ircmatch.match(0, info['host'], self.hostname) or
+                        not ircmatch.match(0, info['host'], self.realaddr)):
+                    return
+
+            elif info['host_type'] in (4, 6):
+                if ipaddr not in info['network']:
+                    return
+
+            reason = 'You are banned from this server ({})'.format(info['reason'])
+            self.dump_numeric('465', params=[reason])
+            self.quit('Closed Connection')
+
     def register(self):
         self.registered = True
         self.ctx.clients[self.nickname] = self
 
         # check klines
-        ipaddr = ipaddress.ip_address(self.realaddr)
-
         for info in list(self.ctx.klines.values()):
-            if info['duration_mins'] == 0 or time.time() < info['expires_at']:
-                if not ircmatch.match(0, info['user'], self.username):
-                    continue
-
-                if info['host_type'] == 'mask':
-                    if (not ircmatch.match(0, info['host'], self.hostname) or
-                            not ircmatch.match(0, info['host'], self.realaddr)):
-                        continue
-
-                elif info['host_type'] in (4, 6):
-                    if ipaddr not in info['network']:
-                        continue
-
-                reason = 'You are banned from this server ({})'.format(info['reason'])
-                self.dump_numeric('465', params=[reason])
-                self.quit('Closed Connection')
+            self.check_kline(info)
+        if not self.connected:
+            return
 
         # continue with registration
         self.registration_ts = self.ctx.current_ts

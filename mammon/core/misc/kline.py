@@ -110,6 +110,10 @@ def m_kline_process(info):
             kline_data['network'] = ipaddress.ip_network(info['host'], strict=False)
         ctx.klines[(info['server'], info['mask'])] = kline_data
 
+        # apply kline to matching clients on the network
+        for client in ctx.clients.values():
+            client.check_kline(kline_data)
+
 @eventmgr_rfc1459.message('UNKLINE', min_params=1, oper=True)
 def m_UNKLINE(cli, ev_msg):
     if 'oper:unkline' not in cli.role.capabilities:
