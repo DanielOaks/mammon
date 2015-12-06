@@ -110,7 +110,7 @@ def m_kline_process(info):
             kline_data['network'] = ipaddress.ip_network(info['host'], strict=False)
         ctx.klines[(info['server'], info['mask'])] = kline_data
 
-        # apply kline to matching clients on the network
+        # apply kline to matching clients on our server
         for client in list(ctx.clients.values()):
             client.check_kline(kline_data)
 
@@ -152,7 +152,9 @@ def m_UNKLINE(cli, ev_msg):
     # confirm kline exists
     ctx = get_context()
 
-    if 'kline.{}_{}'.format(dest_server, mask) in ctx.data:
+    existing_kline = ctx.data.get('kline.{}_{}'.format(dest_server, mask))
+    if existing_kline and (existing_kline['duration_mins'] == 0 or
+                           existing_kline['expires_at'] > time.time()):
         cli.dump_notice('Removed K-Line [{}]'.format(mask))
     else:
         cli.dump_notice('No K-Line for [{}]'.format(mask))

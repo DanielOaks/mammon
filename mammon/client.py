@@ -451,33 +451,38 @@ class ClientProtocol(asyncio.Protocol):
         self.dump_numeric('005', [format_token(k, v) for k, v in isupport_tokens.items()] + ['are supported by this server'])
 
     def check_kline(self, info):
-        ipaddr = ipaddress.ip_address(self.realaddr)
+        if not ircmatch.match(ircmatch.ascii, info['user'], self.username):
+            return
 
-        if info['duration_mins'] == 0 or time.time() < info['expires_at']:
-            if not ircmatch.match(ircmatch.ascii, info['user'], self.username):
+        if info['host_type'] == 'mask':
+            if not (ircmatch.match(ircmatch.ascii, info['host'], self.hostname) or
+                    ircmatch.match(ircmatch.ascii, info['host'], self.realaddr)):
                 return
 
-            if info['host_type'] == 'mask':
-                if not (ircmatch.match(ircmatch.ascii, info['host'], self.hostname) or
-                        ircmatch.match(ircmatch.ascii, info['host'], self.realaddr)):
-                    return
+        elif info['host_type'] in (4, 6):
+            ipaddr = ipaddress.ip_address(self.realaddr)
+            if ipaddr not in info['network']:
+                return
 
-            elif info['host_type'] in (4, 6):
-                if ipaddr not in info['network']:
-                    return
-
-            if self.connected:
-                reason = 'You are banned from this server ({})'.format(info['reason'])
-                self.dump_numeric('465', params=[reason])
-                self.quit('Closed Connection')
+        if self.connected:
+            reason = 'You are banned from this server ({})'.format(info['reason'])
+            self.dump_numeric('465', params=[reason])
+            self.quit('Closed Connection')
 
     def register(self):
         self.registered = True
         self.ctx.clients[self.nickname] = self
 
         # check klines
-        for info in list(self.ctx.klines.values()):
-            self.check_kline(info)
+        for key, info in list(self.ctx.klines.items()):
+            if info['duration_mins'] == 0 or self.ctx.current_ts < info['expires_at']:
+                self.check_kline(info)
+            else:
+                # kline has expired
+                try:
+                    del self.ctx.klines[key]
+                except KeyError:
+                    pass
         if not self.connected:
             return
 

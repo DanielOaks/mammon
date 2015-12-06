@@ -238,8 +238,16 @@ Options:
         self.data.create_or_load()
 
         self.logger.debug('loading klines')
+        now = time.time()
         for key in self.data.list_keys(prefix='kline.'):
             info = dict(self.data.get(key))
+
+            # delete expired klines
+            if info['duration_mins'] and info['expires_at'] < now:
+                self.data.delete(key)
+                continue
+
+            # only put klines that apply to us in our running list
             if globre.match(info['server'], self.conf.name):
                 if info['host_type'] in (4, 6):
                     info['network'] = ipaddress.ip_network(info['host'], strict=False)
