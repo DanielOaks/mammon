@@ -411,8 +411,7 @@ class ClientProtocol(asyncio.Protocol):
         self.dump_numeric('004', [self.ctx.conf.name, 'mammon-' + str(__version__), ''.join(user_mode_items.keys())])
         self.dump_isupport()
 
-        # XXX - LUSERS isn't implemented.
-        # self.handle_side_effect('LUSERS')
+        self.handle_side_effect('LUSERS')
         self.handle_side_effect('MOTD')
 
         eventmgr_core.dispatch('client connect', {

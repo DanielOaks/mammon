@@ -197,6 +197,39 @@ def m_PRIVMSG(cli, ev_msg):
             'message': message,
         })
 
+@eventmgr_rfc1459.message('LUSERS')
+def m_LUSERS(cli, ev_msg):
+    # XXX - fix this when we have server linking
+    if len(ev_msg['params']):
+        # mask = ev_msg['params'][0]
+        # if len(ev_msg['params'] > 1):
+        #     server = ev_msg['params'][1]
+        cli.dump_numeric('400', params=['LUSERS', 'Server links not supported'])
+        return
+
+    # XXX - could speed this up by keeping running tallies (and perhaps a ctx.opers list?)
+    oper_count = 0
+    user_count = 0
+    invisible_count = 0
+    for client in list(cli.ctx.clients.values()):
+        if client.props.get('special:oper', False):
+            oper_count += 1
+
+        if client.props.get('user:invisible', False):
+            invisible_count += 1
+        else:
+            user_count += 1
+
+    cli.dump_numeric('251', params=['There are {users} users and {invisible} invisible on 1 servers'
+                                    ''.format(users=user_count, invisible=invisible_count)])
+    cli.dump_numeric('252', params=[str(oper_count), 'IRC Operators online'])
+    cli.dump_numeric('254', params=[str(len(cli.ctx.channels)), 'channels formed'])
+    cli.dump_numeric('255', params=['I have {} clients and 0 servers'.format(len(cli.ctx.clients))])
+    # XXX - keep track of max users
+    # cli.dump_numeric('265', params=[])
+    # cli.dump_numeric('266', params=[])
+    # cli.dump_numeric('250', params=[])
+
 @eventmgr_core.handler('client message')
 def m_privmsg_client(info):
     ctx = get_context()
