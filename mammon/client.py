@@ -72,6 +72,7 @@ class ClientProtocol(asyncio.Protocol):
         self.username = str()
         self.hostname = self.peername[0]
         self.realaddr = self.peername[0]
+        self.ipaddr = ipaddress.ip_address(self.realaddr)
         self.realname = '<unregistered>'
         self.props = CaseInsensitiveDict()
         self.caps = CaseInsensitiveDict()
@@ -336,6 +337,17 @@ class ClientProtocol(asyncio.Protocol):
         self.sendto_common_peers(m)
         self.exit()
 
+    def exit_client(self, message, comment):
+        eventmgr_core.dispatch('client quit', {
+            'client': self,
+            'message': message,
+        })
+
+        m = RFC1459Message.from_data('QUIT', source=self.hostmask, params=[message])
+        self.sendto_common_peers(m, exclude=[self])
+        self.dump_verb('ERROR', params=['Closing Link: {} ({})'.format(self.hostname, comment)])
+        self.exit()
+
     def exit(self):
         if self.ping_future:
             self.ping_future.cancel()
@@ -460,14 +472,16 @@ class ClientProtocol(asyncio.Protocol):
                 return
 
         elif info['host_type'] in (4, 6):
-            ipaddr = ipaddress.ip_address(self.realaddr)
-            if ipaddr not in info['network']:
+            if self.ipaddr not in info['network']:
                 return
 
         if self.connected:
             reason = 'You are banned from this server ({})'.format(info['reason'])
             self.dump_numeric('465', params=[reason])
-            self.quit('Closed Connection')
+            shown = 'K-Lined'
+            if info['duration_mins']:
+                shown += ' ({} mins)'.format(info['duration_mins'])
+            self.exit_client('Closed Connection', shown)
 
     def register(self):
         self.registered = True
