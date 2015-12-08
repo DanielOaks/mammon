@@ -50,6 +50,7 @@ class ServerContext(object):
     roles = []
     clients = CaseInsensitiveDict()
     channels = CaseInsensitiveDict()
+    dlines = {}
     klines = {}
     listeners = []
     config_name = 'mammond.yml'
@@ -252,6 +253,21 @@ Options:
                 if info['host_type'] in (4, 6):
                     info['network'] = ipaddress.ip_network(info['host'], strict=False)
                 self.klines[(info['server'], info['mask'])] = info
+
+        self.logger.debug('loading dlines')
+        now = time.time()
+        for key in self.data.list_keys(prefix='dline.'):
+            info = dict(self.data.get(key))
+
+            # delete expired dlines
+            if info['duration_mins'] and info['expires_at'] < now:
+                self.data.delete(key)
+                continue
+
+            # only put dlines that apply to us in our running list
+            if globre.match(info['server'], self.conf.name):
+                info['network'] = ipaddress.ip_network(info['host'], strict=False)
+                self.dlines[(info['server'], info['host'])] = info
 
         self.update_ts_callback()
         self.data.save_callback()

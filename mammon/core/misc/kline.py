@@ -180,3 +180,143 @@ def m_unkline_process(info):
             del ctx.klines[(info['server'], info['mask'])]
         except KeyError:
             return
+
+@eventmgr_rfc1459.message('DLINE', min_params=1, oper=True)
+def m_DLINE(cli, ev_msg):
+    if 'oper:kline' not in cli.role.capabilities:
+        cli.dump_numeric('723', params=['kline', 'Insufficient oper privs'])
+        return
+
+    params = list(ev_msg['params'])
+
+    try:
+        duration_mins = int(params[0])
+        params = params[1:]
+    except ValueError:
+        duration_mins = 0
+
+    host = params.pop(0)
+
+    dest_server = cli.servername
+    if len(params) > 1 and params[1].upper() == 'ON':
+        if 'oper:remote_ban' not in cli.role.capabilities:
+            cli.dump_numeric('723', params=['remote_ban', 'Insufficient oper privs'])
+            return
+        dest_server = params[1]
+        params = params[2:]
+
+    reason = 'No Reason'
+    oper_reason = 'No Reason'
+    if len(params):
+        if '|' in params[0]:
+            reason, oper_reason = params[0].split('|', 1)
+            reason = reason.rstrip()
+            oper_reason = oper_reason.lstrip()
+        else:
+            reason = params[0]
+
+    # strict here just controls whether it validates host bits, so we ignore this
+    network = ipaddress.ip_network(host, strict=False)
+
+    host_type = network.version
+    host = network.compressed
+
+    # dispatch
+    if duration_mins:
+        cli.dump_notice('Added temporary {mins} min. D-Line [{host}]'
+                        ''.format(mins=duration_mins, host=host))
+    else:
+        cli.dump_notice('Added D-Line [{}]'.format(host))
+
+    eventmgr_core.dispatch('dline', {
+        'source': cli,
+        'server': dest_server,
+        'duration_mins': duration_mins,
+        'set_at': time.time(),
+        'expires_at': time.time() + (duration_mins * 60),
+        'host': host,
+        'host_type': host_type,
+        'reason': reason,
+        'oper_reason': oper_reason,
+    })
+
+@eventmgr_core.handler('dline')
+def m_dline_process(info):
+    ctx = get_context()
+
+    cli = info['source']
+
+    dline_data = dict(info)
+    dline_data['source'] = '{} on {}'.format(cli.hostmask, cli.servername)
+
+    ctx.data.put('dline.{}_{}'.format(info['server'], info['host']),
+                 dict(dline_data))
+
+    if globre.match(info['server'], ctx.conf.name):
+        if info['host_type'] in (4, 6):
+            dline_data['network'] = ipaddress.ip_network(info['host'], strict=False)
+        ctx.dlines[(info['server'], info['host'])] = dline_data
+
+        # apply kline to matching clients on our server
+        for client in list(ctx.clients.values()):
+            client.check_dline(dline_data)
+
+@eventmgr_rfc1459.message('UNDLINE', min_params=1, oper=True)
+def m_UNDLINE(cli, ev_msg):
+    if 'oper:unkline' not in cli.role.capabilities:
+        cli.dump_numeric('723', params=['unkline', 'Insufficient oper privs'])
+        return
+
+    params = list(ev_msg['params'])
+
+    userhost = params.pop(0)
+    if '@' in userhost:
+        user, host = userhost.split('@', 1)
+    else:
+        user = '*'
+        host = userhost
+
+    dest_server = cli.servername
+    if len(params) > 1 and params[1].upper() == 'ON':
+        if 'oper:remote_ban' not in cli.role.capabilities:
+            cli.dump_numeric('723', params=['remote_ban', 'Insufficient oper privs'])
+            return
+        dest_server = params[1]
+        params = params[2:]
+
+    # strict here just controls whether it validates host bits, so we ignore this
+    network = ipaddress.ip_network(host, strict=False)
+
+    host_type = network.version
+    host = network.compressed
+
+    # confirm dline exists
+    ctx = get_context()
+
+    existing_dline = ctx.data.get('dline.{}_{}'.format(dest_server, host))
+    if existing_dline and (existing_dline['duration_mins'] == 0 or
+                           existing_dline['expires_at'] > time.time()):
+        cli.dump_notice('Removed D-Line [{}]'.format(host))
+    else:
+        cli.dump_notice('No D-Line for [{}]'.format(host))
+
+    # dispatch
+    eventmgr_core.dispatch('undline', {
+        'source': cli,
+        'server': dest_server,
+        'user': user,
+        'host': host,
+        'host_type': host_type,
+    })
+
+@eventmgr_core.handler('undline')
+def m_undline_process(info):
+    ctx = get_context()
+
+    ctx.data.delete('dline.{}_{}'.format(info['server'], info['host']))
+
+    if globre.match(info['server'], ctx.conf.name):
+        try:
+            del ctx.dlines[(info['server'], info['host'])]
+        except KeyError:
+            return

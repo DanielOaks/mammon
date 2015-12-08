@@ -93,6 +93,20 @@ class ClientProtocol(asyncio.Protocol):
         self.ctx.logger.debug('new inbound connection from {}'.format(self.peername))
         self.eventmgr = eventmgr_rfc1459
 
+        # check dlines
+        for key, info in list(self.ctx.dlines.items()):
+            if info['duration_mins'] == 0 or self.ctx.current_ts < info['expires_at']:
+                self.check_dline(info)
+            else:
+                # dline has expired
+                try:
+                    del self.ctx.dlines[key]
+                except KeyError:
+                    pass
+        if not self.connected:
+            self.ctx.logger.debug('new inbound connection from {} rejected (d-line)'.format(self.peername))
+            return
+
         self.tls = self.transport.get_extra_info('sslcontext', default=None) is not None
         if self.tls:
             self.props['special:tls'] = True
@@ -462,6 +476,18 @@ class ClientProtocol(asyncio.Protocol):
 
         self.dump_numeric('005', [format_token(k, v) for k, v in isupport_tokens.items()] + ['are supported by this server'])
 
+    def check_dline(self, info):
+        if self.ipaddr not in info['network']:
+            return
+
+        if self.connected:
+            reason = 'You are banned from this server ({})'.format(info['reason'])
+            self.dump_numeric('465', params=[reason])
+            shown = 'D-Lined'
+            if info['duration_mins']:
+                shown += ' ({} mins)'.format(info['duration_mins'])
+            self.exit_client('Closed Connection', shown)
+
     def check_kline(self, info):
         if not ircmatch.match(ircmatch.ascii, info['user'], self.username):
             return
@@ -498,6 +524,7 @@ class ClientProtocol(asyncio.Protocol):
                 except KeyError:
                     pass
         if not self.connected:
+            self.ctx.logger.debug('new inbound connection from {}@{} rejected (k-line)'.format(self.username, self.peername))
             return
 
         # continue with registration
