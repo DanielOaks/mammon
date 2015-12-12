@@ -267,4 +267,5 @@ extensions:
 - mammon.ext.ircv3.echo_message
 - mammon.ext.ircv3.register
 - mammon.ext.ircv3.sasl
+- mammon.ext.misc.kline
 - mammon.ext.misc.nopost

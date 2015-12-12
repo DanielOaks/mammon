@@ -16,5 +16,4 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 from . import rfc1459
-from . import misc
 from . import ircv3

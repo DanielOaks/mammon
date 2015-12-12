@@ -20,9 +20,6 @@ import time
 import socket
 import copy
 import functools
-import ipaddress
-
-import ircmatch
 
 from ircreactor.envelope import RFC1459Message
 from .capability import Capability
@@ -72,7 +69,6 @@ class ClientProtocol(asyncio.Protocol):
         self.username = str()
         self.hostname = self.peername[0]
         self.realaddr = self.peername[0]
-        self.ipaddr = ipaddress.ip_address(self.realaddr)
         self.realname = '<unregistered>'
         self.props = CaseInsensitiveDict()
         self.caps = CaseInsensitiveDict()
@@ -93,18 +89,10 @@ class ClientProtocol(asyncio.Protocol):
         self.ctx.logger.debug('new inbound connection from {}'.format(self.peername))
         self.eventmgr = eventmgr_rfc1459
 
-        # check dlines
-        for key, info in list(self.ctx.dlines.items()):
-            if info['duration_mins'] == 0 or self.ctx.current_ts < info['expires_at']:
-                self.check_dline(info)
-            else:
-                # dline has expired
-                try:
-                    del self.ctx.dlines[key]
-                except KeyError:
-                    pass
+        eventmgr_core.dispatch('client prereg', {
+            'client': self,
+        })
         if not self.connected:
-            self.ctx.logger.debug('new inbound connection from {} rejected (d-line)'.format(self.peername))
             return
 
         self.tls = self.transport.get_extra_info('sslcontext', default=None) is not None
@@ -476,58 +464,16 @@ class ClientProtocol(asyncio.Protocol):
 
         self.dump_numeric('005', [format_token(k, v) for k, v in isupport_tokens.items()] + ['are supported by this server'])
 
-    def check_dline(self, info):
-        if self.ipaddr not in info['network']:
-            return
-
-        if self.connected:
-            reason = 'You are banned from this server ({})'.format(info['reason'])
-            self.dump_numeric('465', params=[reason])
-            shown = 'D-Lined'
-            if info['duration_mins']:
-                shown += ' ({} mins)'.format(info['duration_mins'])
-            self.exit_client('Closed Connection', shown)
-
-    def check_kline(self, info):
-        if not ircmatch.match(ircmatch.ascii, info['user'], self.username):
-            return
-
-        if info['host_type'] == 'mask':
-            if not (ircmatch.match(ircmatch.ascii, info['host'], self.hostname) or
-                    ircmatch.match(ircmatch.ascii, info['host'], self.realaddr)):
-                return
-
-        elif info['host_type'] in (4, 6):
-            if self.ipaddr not in info['network']:
-                return
-
-        if self.connected:
-            reason = 'You are banned from this server ({})'.format(info['reason'])
-            self.dump_numeric('465', params=[reason])
-            shown = 'K-Lined'
-            if info['duration_mins']:
-                shown += ' ({} mins)'.format(info['duration_mins'])
-            self.exit_client('Closed Connection', shown)
-
     def register(self):
         self.registered = True
         self.ctx.clients[self.nickname] = self
 
-        # check klines
-        for key, info in list(self.ctx.klines.items()):
-            if info['duration_mins'] == 0 or self.ctx.current_ts < info['expires_at']:
-                self.check_kline(info)
-            else:
-                # kline has expired
-                try:
-                    del self.ctx.klines[key]
-                except KeyError:
-                    pass
+        eventmgr_core.dispatch('client postreg', {
+            'client': self,
+        })
         if not self.connected:
-            self.ctx.logger.debug('new inbound connection from {}@{} rejected (k-line)'.format(self.username, self.peername))
             return
 
-        # continue with registration
         self.registration_ts = self.ctx.current_ts
         self.update_idle()
 

@@ -19,7 +19,119 @@ import globre
 import ipaddress
 import time
 
+import ircmatch
+
 from mammon.server import eventmgr_core, eventmgr_rfc1459, get_context
+
+@eventmgr_core.handler('server start')
+def m_kline_setup(info):
+    ctx = info['server']
+
+    ctx.logger.debug('loading klines')
+    ctx.klines = {}
+    for key in ctx.data.list_keys(prefix='kline.'):
+        info = dict(ctx.data.get(key))
+
+        # delete expired klines
+        if info['duration_mins'] and info['expires_at'] < ctx.current_ts:
+            ctx.data.delete(key)
+            continue
+
+        # only put klines that apply to us in our running list
+        if globre.match(info['server'], ctx.conf.name):
+            if info['host_type'] in (4, 6):
+                info['network'] = ipaddress.ip_network(info['host'], strict=False)
+            ctx.klines[(info['server'], info['mask'])] = info
+
+    ctx.logger.debug('loading dlines')
+    ctx.dlines = {}
+    for key in ctx.data.list_keys(prefix='dline.'):
+        info = dict(ctx.data.get(key))
+
+        # delete expired dlines
+        if info['duration_mins'] and info['expires_at'] < ctx.current_ts:
+            ctx.data.delete(key)
+            continue
+
+        # only put dlines that apply to us in our running list
+        if globre.match(info['server'], ctx.conf.name):
+            info['network'] = ipaddress.ip_network(info['host'], strict=False)
+            ctx.dlines[(info['server'], info['host'])] = info
+
+# - - - CLIENT CHECKING AND HANDLING - - -
+
+@eventmgr_core.handler('client prereg')
+def m_kline_client_prereg(info):
+    cli = info['client']
+    ctx = cli.ctx
+    cli.ipaddr = ipaddress.ip_address(cli.realaddr)
+
+    # check dlines
+    for key, info in list(ctx.dlines.items()):
+        if info['duration_mins'] == 0 or ctx.current_ts < info['expires_at']:
+            check_dline(cli, info)
+        else:
+            # dline has expired
+            try:
+                del ctx.dlines[key]
+            except KeyError:
+                pass
+    if not cli.connected:
+        ctx.logger.debug('new inbound connection from {} rejected (d-line)'.format(cli.peername))
+
+@eventmgr_core.handler('client postreg')
+def m_kline_client_postreg(info):
+    cli = info['client']
+    ctx = cli.ctx
+
+    # check klines
+    for key, info in list(ctx.klines.items()):
+        if info['duration_mins'] == 0 or ctx.current_ts < info['expires_at']:
+            check_kline(cli, info)
+        else:
+            # kline has expired
+            try:
+                del ctx.klines[key]
+            except KeyError:
+                pass
+    if not cli.connected:
+        ctx.logger.debug('new inbound connection from {}@{} rejected (k-line)'.format(cli.username, cli.peername))
+        return
+
+def check_dline(cli, info):
+    if cli.ipaddr not in info['network']:
+        return
+
+    if cli.connected:
+        reason = 'You are banned from this server ({})'.format(info['reason'])
+        cli.dump_numeric('465', params=[reason])
+        shown = 'D-Lined'
+        if info['duration_mins']:
+            shown += ' ({} mins)'.format(info['duration_mins'])
+        cli.exit_client('Closed Connection', shown)
+
+def check_kline(cli, info):
+    if not ircmatch.match(ircmatch.ascii, info['user'], cli.username):
+        return
+
+    if info['host_type'] == 'mask':
+        if not (ircmatch.match(ircmatch.ascii, info['host'], cli.hostname) or
+                ircmatch.match(ircmatch.ascii, info['host'], cli.realaddr)):
+            return
+
+    elif info['host_type'] in (4, 6):
+        if cli.ipaddr not in info['network']:
+            return
+
+    if cli.connected:
+        reason = 'You are banned from this server ({})'.format(info['reason'])
+        cli.dump_numeric('465', params=[reason])
+        shown = 'K-Lined'
+        if info['duration_mins']:
+            shown += ' ({} mins)'.format(info['duration_mins'])
+        cli.exit_client('Closed Connection', shown)
+
+# - - - COMMANDS - - -
 
 @eventmgr_rfc1459.message('KLINE', min_params=1, oper=True)
 def m_KLINE(cli, ev_msg):
@@ -112,7 +224,7 @@ def m_kline_process(info):
 
         # apply kline to matching clients on our server
         for client in list(ctx.clients.values()):
-            client.check_kline(kline_data)
+            check_kline(client, kline_data)
 
 @eventmgr_rfc1459.message('UNKLINE', min_params=1, oper=True)
 def m_UNKLINE(cli, ev_msg):
@@ -259,7 +371,7 @@ def m_dline_process(info):
 
         # apply kline to matching clients on our server
         for client in list(ctx.clients.values()):
-            client.check_dline(dline_data)
+            check_dline(client, dline_data)
 
 @eventmgr_rfc1459.message('UNDLINE', min_params=1, oper=True)
 def m_UNDLINE(cli, ev_msg):

@@ -40,9 +40,7 @@ import datetime
 import time
 import os
 import signal
-import globre
 import importlib
-import ipaddress
 from getpass import getpass
 
 class ServerContext(object):
@@ -50,8 +48,6 @@ class ServerContext(object):
     roles = []
     clients = CaseInsensitiveDict()
     channels = CaseInsensitiveDict()
-    dlines = {}
-    klines = {}
     listeners = []
     config_name = 'mammond.yml'
     nofork = False
@@ -237,37 +233,6 @@ Options:
         running_context = self
 
         self.data.create_or_load()
-
-        self.logger.debug('loading klines')
-        now = time.time()
-        for key in self.data.list_keys(prefix='kline.'):
-            info = dict(self.data.get(key))
-
-            # delete expired klines
-            if info['duration_mins'] and info['expires_at'] < now:
-                self.data.delete(key)
-                continue
-
-            # only put klines that apply to us in our running list
-            if globre.match(info['server'], self.conf.name):
-                if info['host_type'] in (4, 6):
-                    info['network'] = ipaddress.ip_network(info['host'], strict=False)
-                self.klines[(info['server'], info['mask'])] = info
-
-        self.logger.debug('loading dlines')
-        now = time.time()
-        for key in self.data.list_keys(prefix='dline.'):
-            info = dict(self.data.get(key))
-
-            # delete expired dlines
-            if info['duration_mins'] and info['expires_at'] < now:
-                self.data.delete(key)
-                continue
-
-            # only put dlines that apply to us in our running list
-            if globre.match(info['server'], self.conf.name):
-                info['network'] = ipaddress.ip_network(info['host'], strict=False)
-                self.dlines[(info['server'], info['host'])] = info
 
         self.update_ts_callback()
         self.data.save_callback()
