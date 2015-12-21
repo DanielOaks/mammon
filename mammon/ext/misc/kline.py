@@ -108,7 +108,7 @@ def check_dline(cli, info):
         shown = 'D-Lined'
         if info['duration_mins']:
             shown += ' ({} mins)'.format(info['duration_mins'])
-        cli.exit_client('Closed Connection', shown)
+        cli.quit('Closed Connection', shown)
 
 def check_kline(cli, info):
     if not ircmatch.match(ircmatch.ascii, info['user'], cli.username):
@@ -129,7 +129,7 @@ def check_kline(cli, info):
         shown = 'K-Lined'
         if info['duration_mins']:
             shown += ' ({} mins)'.format(info['duration_mins'])
-        cli.exit_client('Closed Connection', shown)
+        cli.quit('Closed Connection', shown)
 
 # - - - COMMANDS - - -
 

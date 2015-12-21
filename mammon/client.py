@@ -329,20 +329,14 @@ class ClientProtocol(asyncio.Protocol):
         self.dump_message(m)
         self.quit('Killed ({source} ({reason}))'.format(source=source.nickname, reason=reason))
 
-    def quit(self, message):
+    def quit(self, message, comment=None):
+        if comment is None:
+            comment = message
+
         eventmgr_core.dispatch('client quit', {
             'client': self,
             'message': message,
-        })
-
-        m = RFC1459Message.from_data('QUIT', source=self, params=[message])
-        self.sendto_common_peers(m)
-        self.exit()
-
-    def exit_client(self, message, comment):
-        eventmgr_core.dispatch('client quit', {
-            'client': self,
-            'message': message,
+            'comment': comment,
         })
 
         m = RFC1459Message.from_data('QUIT', source=self.hostmask, params=[message])
